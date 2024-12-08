@@ -23,12 +23,19 @@ Dim MaxLaneNo4TimeFinal As Integer
 Dim MaxLaneNo4Final As Integer
 Dim MaxLaneNo4SemiFinal As Integer
 '-------------------------
-' full file name of mdb
+' 用語の定義
+' 競技番号　: 同じクラス同じ種目同じ距離で一つの競技。競技の中に組がある
+' race番号  : 一つの競技に複数の組がある場合はraceはその組の数だけある。
+'      ただし、合同の場合は複数の組が一つのraceになる
+'
 '----------------------------
-
-
+Dim RealRace() As Integer
+'----
+' RealRaceは二次元のアレイ。RealRace(3, レースの数)
+' ただしレースの数は合同を無視した数。RealRace(2, rn) が 0でない場合は合同レースとなる。
+'  RealRace(2,rn)が同じ数のレースが合同ということになる。
 Dim GlobalError As Integer
-'------------
+'---------    ---
 ' class table
 '-----------
 Dim className() As String
@@ -37,7 +44,7 @@ Dim className() As String
 '--- from 選手マスター ---
 
 
-Dim NumRaces As Integer
+Dim numRaces As Integer
 Dim MaxPrgNo As Integer
 Dim SwimmerName() As String
 Dim SwimmerNameKANA() As String
@@ -104,7 +111,7 @@ Dim DistanceTable(NUMDISTANCE) As String
 'for LocateTeamID  since database table 所属 is not reliable.
 '----------------------------------
 Dim MaxTeamNum As Integer
-Dim Team(100) As String
+Dim Team(200) As String
 
 Dim lastPrgNo As Integer
 Dim firstPrgNo As Integer
@@ -116,7 +123,7 @@ Sub ReadServer()
     ServerName = Range("serverName").Value
 
     Dim myRecordSet As New ADODB.Recordset
-    Dim myquery As String
+    Dim myQuery As String
     Dim myCon As ADODB.Connection
     Dim row As Long
     Dim col As Long
@@ -127,8 +134,8 @@ Sub ReadServer()
     myCon.Open
 
     
-    myquery = "SELECT 大会番号, 大会名1, 始期間, 終期間, 開催地 FROM 大会設定"
-    myRecordSet.Open myquery, myCon, adOpenStatic, adLockOptimistic, adLockReadOnly
+    myQuery = "SELECT 大会番号, 大会名1, 始期間, 終期間, 開催地 FROM 大会設定"
+    myRecordSet.Open myQuery, myCon, adOpenStatic, adLockOptimistic, adLockReadOnly
     row = Range("startRow").row
     col = Range("大会番号").Column
     Do Until myRecordSet.EOF
@@ -146,6 +153,8 @@ Sub ReadServer()
     Loop
     myRecordSet.Close
     Set myRecordSet = Nothing
+    myCon.Close
+    Set myCon = Nothing
 
     Exit Sub
 MyError:
@@ -216,9 +225,11 @@ Sub GoAhead()
 
     Call InitTables
     Call ReadDataBase
+    Call CreateRaceArray
     Range("大会名").Value = EventName
-    frmMain.Caption = EventName
+
     frmMain.show
+    
 End Sub
 
 
@@ -249,14 +260,14 @@ End Function
 
 Private Sub init_class_db_array(myCon As ADODB.Connection)
     Dim myRecordSet As New ADODB.Recordset
-    Dim myquery As String
+    Dim myQuery As String
 
-    myquery = "select クラス番号  from クラス where 大会番号=" & _
+    myQuery = "select クラス番号  from クラス where 大会番号=" & _
     EventNo & " and クラス番号=(select max(クラス番号) from クラス where 大会番号= " & _
      EventNo & ")"
 
-    myRecordSet.Open myquery, myCon, adOpenStatic, adLockOptimistic
-    If myRecordSet.RecordCount > 0 Then
+    myRecordSet.Open myQuery, myCon, adOpenStatic, adLockOptimistic
+    If myRecordSet.recordCount > 0 Then
         MaxClassNumber = myRecordSet!クラス番号
         ReDim className(MaxClassNumber)
     Else
@@ -272,7 +283,7 @@ Sub ReadClassTable()
     Dim myCon As New ADODB.Connection
     Dim myRecordSet As New ADODB.Recordset
    
-    Dim myquery As String
+    Dim myQuery As String
     
     myCon.ConnectionString = "Provider=SQLOLEDB;Data Source=" & ServerName & "\SQLEXPRESS;Initial Catalog=Sw;User ID=Sw;Password=;"
     myCon.Open
@@ -280,9 +291,9 @@ Sub ReadClassTable()
     
     Call init_class_db_array(myCon)
         
-    myquery = "SELECT クラス番号,クラス名称 FROM クラス where 大会番号= " & EventNo
+    myQuery = "SELECT クラス番号,クラス名称 FROM クラス where 大会番号= " & EventNo
       
-    myRecordSet.Open myquery, myCon, adOpenStatic, adLockOptimistic
+    myRecordSet.Open myQuery, myCon, adOpenStatic, adLockOptimistic
     
     Do Until myRecordSet.EOF
       className(myRecordSet!クラス番号) = myRecordSet!クラス名称
@@ -298,13 +309,13 @@ End Sub
 
 Private Sub init_swimmer_db_array(myCon As ADODB.Connection)
     Dim myRecordSet As New ADODB.Recordset
-    Dim myquery As String
+    Dim myQuery As String
 
-    myquery = "select 選手番号  from 選手 where 大会番号= " & _
+    myQuery = "select 選手番号  from 選手 where 大会番号= " & _
       EventNo & " and 選手番号=(select max(選手番号) from 選手 where " & _
        "大会番号= " & EventNo & ");"
 
-    myRecordSet.Open myquery, myCon, adOpenStatic, adLockOptimistic
+    myRecordSet.Open myQuery, myCon, adOpenStatic, adLockOptimistic
     NumSwimmers = myRecordSet!選手番号
     ReDim SwimmerName(NumSwimmers)
     ReDim SwimmerNameKANA(NumSwimmers)
@@ -317,7 +328,7 @@ Sub ReadSwimmerTable()
     Dim myCon As New ADODB.Connection
     Dim myRecordSet As New ADODB.Recordset
    
-    Dim myquery As String
+    Dim myQuery As String
     Dim clubName As String
     
     Dim clubNo As Integer
@@ -327,9 +338,9 @@ Sub ReadSwimmerTable()
     myCon.CursorLocation = adUseClient
     Call init_swimmer_db_array(myCon)
         
-    myquery = "SELECT 選手番号, 氏名, 氏名カナ, 所属名称１ FROM 選手 where 大会番号=" & EventNo
+    myQuery = "SELECT 選手番号, 氏名, 氏名カナ, 所属名称１ FROM 選手 where 大会番号=" & EventNo
       
-    myRecordSet.Open myquery, myCon, adOpenStatic, adLockOptimistic
+    myRecordSet.Open myQuery, myCon, adOpenStatic, adLockOptimistic
 
     SwimmerName(0) = ""
     BelongsTo(0) = 0
@@ -361,15 +372,15 @@ Sub ReadEventTable()
     Dim myCon As New ADODB.Connection
     Dim myRecordSet As New ADODB.Recordset
        
-    Dim myquery As String
+    Dim myQuery As String
     myCon.ConnectionString = "Provider=SQLOLEDB;Data Source=" & ServerName & "\SQLEXPRESS;Initial Catalog=Sw;User ID=Sw;Password=;"
 
     myCon.Open
         
-    myquery = "SELECT 大会名１,開催地,始期間,終期間,使用水路予選,使用水路タイム決勝,使用水路決勝,使用水路準決勝 " & _
+    myQuery = "SELECT 大会名１,開催地,始期間,終期間,使用水路予選,使用水路タイム決勝,使用水路決勝,使用水路準決勝 " & _
      " FROM 大会設定 where 大会番号=" & EventNo
       
-    myRecordSet.Open myquery, myCon, adOpenStatic, adLockOptimistic
+    myRecordSet.Open myQuery, myCon, adOpenStatic, adLockOptimistic
   
     EventName = Object2String(myRecordSet!大会名1)
     If EventName = "" Then
@@ -432,22 +443,22 @@ End Sub
 
 Private Sub InitProgramDBArray(myCon As ADODB.Connection)
     Dim myRecordSet As New ADODB.Recordset
-    Dim myquery As String
+    Dim myQuery As String
     Dim maxuid As Integer
-    myquery = "select 競技番号 from プログラム where " & _
+    myQuery = "select 競技番号 from プログラム where " & _
      "大会番号= " & EventNo & " and 競技番号=(select max(競技番号) from プログラム " & _
       "where 大会番号= " & EventNo & ");"
 
-    myRecordSet.Open myquery, myCon, adOpenStatic, adLockOptimistic
-    NumRaces = myRecordSet!競技番号
+    myRecordSet.Open myQuery, myCon, adOpenStatic, adLockOptimistic
+    numRaces = myRecordSet!競技番号
 
-    Call RedimProgramDBArray(NumRaces)
+    Call RedimProgramDBArray(numRaces)
     myRecordSet.Close
     Set myRecordSet = Nothing
-    myquery = "select 表示用競技番号 from プログラム where " & _
+    myQuery = "select 表示用競技番号 from プログラム where " & _
      "大会番号=" & EventNo & " and 表示用競技番号=(select max(表示用競技番号) from プログラム" & _
       " where 大会番号= " & EventNo & ");"
-    myRecordSet.Open myquery, myCon, adOpenStatic, adLockOptimistic
+    myRecordSet.Open myQuery, myCon, adOpenStatic, adLockOptimistic
     MaxPrgNo = myRecordSet!表示用競技番号
     ReDim UIDFromRaceNo(MaxPrgNo)
     myRecordSet.Close
@@ -458,16 +469,16 @@ Sub ReadProgramTable()
     Dim myCon As New ADODB.Connection
     Dim myRecordSet As New ADODB.Recordset
     Dim uid As Integer
-    Dim myquery As String
+    Dim myQuery As String
     
     myCon.ConnectionString = "Provider=SQLOLEDB;Data Source=" & ServerName & "\SQLEXPRESS;Initial Catalog=Sw;User ID=Sw;Password=;"
     myCon.Open
     Call InitProgramDBArray(myCon)
-    myquery = "SELECT 競技番号 as uid, 表示用競技番号, 種目コード, 距離コード,  " + _
+    myQuery = "SELECT 競技番号 as uid, 表示用競技番号, 種目コード, 距離コード,  " + _
               "性別コード, 予決コード, クラス番号  " + _
               "FROM プログラム where 大会番号=" & EventNo
       
-    myRecordSet.Open myquery, myCon, adOpenStatic, adLockOptimistic
+    myRecordSet.Open myQuery, myCon, adOpenStatic, adLockOptimistic
     
     Do Until myRecordSet.EOF
         uid = myRecordSet!uid
@@ -574,13 +585,13 @@ End Sub
 Private Sub InitYoketsuArray(myCon As ADODB.Connection)
 
     Dim myRecordSet As New ADODB.Recordset
-    Dim myquery As String
+    Dim myQuery As String
 
-    myquery = "select 予決コード, 予決 from 予決 where 予決コード=(select max(予決コード) from 予決);"
+    myQuery = "select 予決コード, 予決 from 予決 where 予決コード=(select max(予決コード) from 予決);"
 
-    myRecordSet.Open myquery, myCon, adOpenStatic, adLockOptimistic
+    myRecordSet.Open myQuery, myCon, adOpenStatic, adLockOptimistic
     
-    If myRecordSet.RecordCount > 0 Then
+    If myRecordSet.recordCount > 0 Then
       
       ReDim Yoketsu(myRecordSet!予決コード)
     Else
@@ -628,15 +639,15 @@ End Sub
 
 Private Sub InitTeamDbArray(myCon As ADODB.Connection)
     Dim myRecordSet As New ADODB.Recordset
-    Dim myquery As String
+    Dim myQuery As String
 
-    myquery = "select チーム番号 from リレーチーム where 大会番号= " & EventNo & _
+    myQuery = "select チーム番号 from リレーチーム where 大会番号= " & EventNo & _
       " and チーム番号=(select max(チーム番号) from リレーチーム " & _
        " where 大会番号= " & EventNo & ");"
 
-    myRecordSet.Open myquery, myCon, adOpenStatic, adLockOptimistic
+    myRecordSet.Open myQuery, myCon, adOpenStatic, adLockOptimistic
     
-    If myRecordSet.RecordCount > 0 Then
+    If myRecordSet.recordCount > 0 Then
       NumTeam = myRecordSet!チーム番号
       ReDim TeamName4Relay(NumTeam)
     Else
@@ -760,17 +771,17 @@ Function RaceExist(uid As Integer, kumi As Integer) As Boolean
 
     Dim myCon As New ADODB.Connection
     Dim myRecordSet As New ADODB.Recordset
-    Dim myquery As String
+    Dim myQuery As String
      
     myCon.ConnectionString = "Provider=SQLOLEDB;Data Source=" & ServerName & "\SQLEXPRESS;Initial Catalog=Sw;User ID=Sw;Password=;"
     myCon.Open
            
-    myquery = "SELECT 競技番号, 選手番号,  第１泳者, 第２泳者, 第３泳者, 第４泳者  " & _
+    myQuery = "SELECT 競技番号, 選手番号,  第１泳者, 第２泳者, 第３泳者, 第４泳者  " & _
               ", 組, 水路, 事由入力ステータス " & _
               "FROM 記録 WHERE 組=" & kumi & " AND 競技番号=" & uid & _
               " and 大会番号=" & EventNo
       
-    myRecordSet.Open myquery, myCon, adOpenStatic, adLockOptimistic
+    myRecordSet.Open myQuery, myCon, adOpenStatic, adLockOptimistic
     
     If myRecordSet.EOF Then
       RaceExist = False
@@ -798,7 +809,7 @@ Private Sub show(uid As Integer, kumi As Integer)
     Dim myCon As New ADODB.Connection
     Dim myRecordSet As New ADODB.Recordset
    
-    Dim myquery As String
+    Dim myQuery As String
     Dim laneNoStr As String
     Dim lane0NoStr As String
     Dim furiganaStr As String
@@ -810,28 +821,27 @@ Private Sub show(uid As Integer, kumi As Integer)
     Dim laneNo As Integer
     maxLaneNumber = 0
     minLaneNumber = GetMaxLaneNo(uid)
-    Call frmMain.hide_unused_lane(minLaneNumber)
+    Call frmMain.HideUnusedLane(minLaneNumber)
     myCon.ConnectionString = "Provider=SQLOLEDB;Data Source=" & ServerName & "\SQLEXPRESS;Initial Catalog=Sw;User ID=Sw;Password=;"
     myCon.Open
          
-    myquery = "SELECT 競技番号, 選手番号,  " & _
+    myQuery = "SELECT 競技番号, 選手番号,  " & _
               "第１泳者, 第２泳者, 第３泳者, 第４泳者  " & _
               ", 組, 水路, 事由入力ステータス " & _
               "FROM 記録 WHERE 組=" & kumi & " AND 競技番号=" & uid & _
               " and 大会番号=" & EventNo
       
-    myRecordSet.Open myquery, myCon, adOpenStatic, adLockOptimistic
+    myRecordSet.Open myQuery, myCon, adOpenStatic, adLockOptimistic
     frmMain.clearMe
 
     frmMain.lblClassName.Caption = className(ClassNumberbyUID(uid))
     frmMain.lblGender.Caption = GenderStr(GenderbyUID(uid))
     frmMain.lblRaceName.Caption = DistanceTable(DistancebyUID(uid)) + ShumokuTable(ShumokubyUID(uid))
     frmMain.lblPhase.Caption = Phase(uid)
+    frmMain.lblClassName.Visible = True
     Do Until myRecordSet.EOF
       laneNo = CInt(myRecordSet!水路)
-      If laneNo = 0 Then
-        laneNo = 10
-      End If
+
 
       laneNoStr = "lblName" & laneNo
       furiganaStr = "lblKana" & laneNo
@@ -877,7 +887,7 @@ Private Sub show(uid As Integer, kumi As Integer)
       myRecordSet.MoveNext
     Loop
     Call CloseSQLConnection(myRecordSet, myCon)
-    If can_go_with_next(uid, kumi, maxLaneNumber) Then
+    If CanGoWithNext(uid, kumi, maxLaneNumber) Then
       frmMain.cmdNextTogether.Visible = True
     Else
       frmMain.cmdNextTogether.Visible = False
@@ -894,8 +904,9 @@ Private Sub next_race_show(prevUID As Integer, uid As Integer, kumi As Integer)
     Dim myCon As New ADODB.Connection
     Dim myRecordSet As New ADODB.Recordset
    
-    Dim myquery As String
+    Dim myQuery As String
     Dim laneNo As Integer
+    Dim laneNoDisp As Integer
     Dim laneNoStr As String
     Dim lane0NoStr As String
     Dim furiganaStr As String
@@ -911,15 +922,15 @@ Private Sub next_race_show(prevUID As Integer, uid As Integer, kumi As Integer)
     myCon.ConnectionString = "Provider=SQLOLEDB;Data Source=" & ServerName & "\SQLEXPRESS;Initial Catalog=Sw;User ID=Sw;Password=;"
     myCon.Open
          
-    myquery = "SELECT 競技番号, 選手番号,  " & _
+    myQuery = "SELECT 競技番号, 選手番号,  " & _
               "第１泳者, 第２泳者, 第３泳者, 第４泳者  " & _
               ", 組, 水路, 事由入力ステータス " & _
               "FROM 記録 WHERE 組=" & kumi & " AND 競技番号=" & uid & _
               " and 大会番号=" & EventNo
       
-    myRecordSet.Open myquery, myCon, adOpenStatic, adLockOptimistic
+    myRecordSet.Open myQuery, myCon, adOpenStatic, adLockOptimistic
     If frmMain.lblClassName.Caption <> "合同" Then
-    frmMain.lblClassName.Caption = "合同"
+      frmMain.lblClassName.Caption = "合同"
       If GenderbyUID(prevUID) <> GenderbyUID(uid) Then
         frmMain.lblGender.Caption = ""
         frmMain.lblClassName1 = className(ClassNumberbyUID(prevUID)) & " " & GenderStr(GenderbyUID(prevUID))
@@ -930,9 +941,12 @@ Private Sub next_race_show(prevUID As Integer, uid As Integer, kumi As Integer)
     End If
     Do Until myRecordSet.EOF
       laneNo = CInt(myRecordSet!水路)
-      If laneNo = 0 Then
-        laneNo = 10
+      If laneNo = 10 Then
+        laneNo = 0
+
       End If
+      
+
       laneNoStr = "lblName" & laneNo
       furiganaStr = "lblKana" & laneNo
 
@@ -944,6 +958,8 @@ Private Sub next_race_show(prevUID As Integer, uid As Integer, kumi As Integer)
         If laneNo <= minLaneNumber Then
           minLaneNumber = myRecordSet!水路
           If GenderbyUID(prevUID) <> GenderbyUID(uid) Then
+            If minLaneNumber = 10 Then
+                laneNo
             frmMain.Controls("lblClassName" & minLaneNumber).Caption = className(ClassNumberbyUID(uid)) & " " & _
                                                            GenderStr(GenderbyUID(uid))
           Else
@@ -984,7 +1000,7 @@ Private Sub next_race_show(prevUID As Integer, uid As Integer, kumi As Integer)
       myRecordSet.MoveNext
     Loop
     Call CloseSQLConnection(myRecordSet, myCon)
-    If can_go_with_next(uid, kumi, maxLaneNumber) Then
+    If CanGoWithNext(uid, kumi, maxLaneNumber) Then
       frmMain.cmdNextTogether.Visible = True
     Else
       frmMain.cmdNextTogether.Visible = False
@@ -997,10 +1013,10 @@ Private Sub next_race_show(prevUID As Integer, uid As Integer, kumi As Integer)
 End Sub
 
 
-Function get_first_occupied_lane(uid As Integer) As Integer
+Function GetFirstOccupiedLane(uid As Integer) As Integer
     Dim myCon As New ADODB.Connection
     Dim myRecordSet As New ADODB.Recordset
-    Dim myquery As String
+    Dim myQuery As String
     Dim minLane As Integer
     Dim swimmer As Integer
     
@@ -1008,10 +1024,10 @@ Function get_first_occupied_lane(uid As Integer) As Integer
     myCon.ConnectionString = "Provider=SQLOLEDB;Data Source=" & ServerName & "\SQLEXPRESS;Initial Catalog=Sw;User ID=Sw;Password=;"
     myCon.Open
          
-    myquery = "SELECT UID, 選手番号, 組, 水路 " + _
-              "FROM 記録マスター WHERE 大会番号= " & EventNo & _
-              " and 組=1 " + " AND UID=" & uid
-    myRecordSet.Open myquery, myCon, adOpenStatic, adLockOptimistic
+    myQuery = "SELECT  選手番号, 組, 水路 " & _
+              "FROM 記録 WHERE 大会番号= " & EventNo & _
+              " and 組=1 " + " AND 競技番号=" & uid
+    myRecordSet.Open myQuery, myCon, adOpenStatic, adLockOptimistic
     Do Until myRecordSet.EOF
       swimmer = Object2Int(myRecordSet!選手番号)
       If swimmer > 0 Then
@@ -1021,26 +1037,26 @@ Function get_first_occupied_lane(uid As Integer) As Integer
       End If
       myRecordSet.MoveNext
     Loop
-    get_first_occupied_lane = minLane
+    GetFirstOccupiedLane = minLane
     Call CloseSQLConnection(myRecordSet, myCon)
 End Function
-Function can_go_with_next(uid As Integer, kumi As Integer, maxLaneNumber As Integer) As Boolean
-    Dim prgno As Integer
+Function CanGoWithNext(uid As Integer, kumi As Integer, maxLaneNumber As Integer) As Boolean
+    Dim prgNo As Integer
     Dim nextUid As Integer
-    can_go_with_next = False
+    CanGoWithNext = False
     If maxLaneNumber = GetMaxLaneNo(uid) Then Exit Function
 '    If kumi > 1 Then Exit Function
     
-    prgno = lastPrgNo + 1
-    If prgno > MaxPrgNo Then Exit Function
+    prgNo = lastPrgNo + 1
+    If prgNo > MaxPrgNo Then Exit Function
     
-    nextUid = UIDFromRaceNo(prgno)
+    nextUid = UIDFromRaceNo(prgNo)
 '    If RaceExist(uid, 2) Then Exit Function
     If DistancebyUID(uid) <> DistancebyUID(nextUid) Then Exit Function
     If ShumokubyUID(uid) <> ShumokubyUID(nextUid) Then Exit Function
     If Phase(uid) <> Phase(nextUid) Then Exit Function
-    If maxLaneNumber < get_first_occupied_lane(nextUid) Then
-        can_go_with_next = True
+    If maxLaneNumber < GetFirstOccupiedLane(nextUid) Then
+        CanGoWithNext = True
     End If
     
 End Function
@@ -1057,35 +1073,35 @@ Public Sub GetNextRace()
   Dim rc As Boolean
 
   Dim loopCount As Integer
-  Dim prgno As Integer
+  Dim prgNo As Integer
   Dim group As Integer
   Dim uid As Integer
 
   Const loopLimit As Integer = 10
   Call frmMain.hide_class
   
-  prgno = lastPrgNo     ' frmMain.txtPrgNo.Value
+  prgNo = lastPrgNo     ' frmMain.txtPrgNo.Value
   group = frmMain.txtKumi.Value
 
   Call InitAndReadDB
-  uid = UIDFromRaceNo(prgno)
+  uid = UIDFromRaceNo(prgNo)
   loopCount = 0
   Do While rc = False
     group = group + 1
     If RaceExist(uid, group) Then
-      frmMain.txtPrgNo.Value = prgno
+      frmMain.txtPrgNo.Value = prgNo
       frmMain.txtKumi.Value = group
-      firstPrgNo = prgno
-      lastPrgNo = prgno
+      firstPrgNo = prgNo
+      lastPrgNo = prgNo
       Call show(uid, group)
       Exit Sub
     End If
-    prgno = prgno + 1
-    If prgno > MaxPrgNo Then
+    prgNo = prgNo + 1
+    If prgNo > MaxPrgNo Then
       Call popup("最終レースです。")
       Exit Sub
     End If
-    uid = UIDFromRaceNo(prgno)
+    uid = UIDFromRaceNo(prgNo)
     group = 0
     loopCount = loopCount + 1
     If loopCount = loopLimit Then
@@ -1099,12 +1115,12 @@ End Sub
 Public Sub GetPrevRace()
   Dim rc As Boolean
 
-  Dim prgno As Integer
+  Dim prgNo As Integer
   Dim group As Integer
   Dim uid As Integer
   
   Call frmMain.hide_class
-  prgno = firstPrgNo    ' frmMain.txtPrgNo.Value
+  prgNo = firstPrgNo    ' frmMain.txtPrgNo.Value
   group = frmMain.txtKumi.Value
 
   Call InitAndReadDB
@@ -1112,16 +1128,16 @@ Public Sub GetPrevRace()
   If (group > 1) Then
       group = group - 1
   Else
-      prgno = prgno - 1
-      If prgno = 0 Then
+      prgNo = prgNo - 1
+      If prgNo = 0 Then
         popup ("最初のレースです。")
         Exit Sub
       End If
-      If prgno > MaxPrgNo Then
+      If prgNo > MaxPrgNo Then
         popup ("該当するレースはありません。最終レースを表示します。")
-        prgno = MaxPrgNo
+        prgNo = MaxPrgNo
       End If
-      uid = UIDFromRaceNo(prgno)
+      uid = UIDFromRaceNo(prgNo)
       rc = True
       Do While rc = True
         group = group + 1
@@ -1129,12 +1145,12 @@ Public Sub GetPrevRace()
       Loop
       group = group - 1
   End If
-  uid = UIDFromRaceNo(prgno)
+  uid = UIDFromRaceNo(prgNo)
   
-  frmMain.txtPrgNo.Value = prgno
+  frmMain.txtPrgNo.Value = prgNo
   frmMain.txtKumi.Value = group
-  lastPrgNo = prgno
-  firstPrgNo = prgno
+  lastPrgNo = prgNo
+  firstPrgNo = prgNo
   Call show(uid, group)
       
 End Sub
@@ -1142,18 +1158,18 @@ End Sub
 Public Sub GoWithNextRace()
 
   Dim loopCount As Integer
-  Dim prgno As Integer
+  Dim prgNo As Integer
   Dim group As Integer
   Dim uid As Integer
   Dim thisUID As Integer
   
   thisUID = UIDFromRaceNo(lastPrgNo)
     
-  prgno = lastPrgNo + 1
-  lastPrgNo = prgno
+  prgNo = lastPrgNo + 1
+  lastPrgNo = prgNo
   group = 1
   Call InitAndReadDB
-  uid = UIDFromRaceNo(prgno)
+  uid = UIDFromRaceNo(prgNo)
 
 
   Call next_race_show(thisUID, uid, group)
@@ -1174,33 +1190,108 @@ End Sub
 
 Public Sub ShowLaneOrder()
 
-  Dim prgno As Integer
+  Dim prgNo As Integer
   Dim kumi As Integer
   Dim uid As Integer
   
-  prgno = frmMain.txtPrgNo.Value
+  prgNo = frmMain.txtPrgNo.Value
   kumi = frmMain.txtKumi.Value
   Call frmMain.hide_class
   
   Call InitAndReadDB
-  If prgno > MaxPrgNo Then
+  If prgNo > MaxPrgNo Then
     popup ("該当のレースはありません。最終レースを表示します。")
-    prgno = MaxPrgNo
-    frmMain.txtPrgNo.Value = prgno
+    prgNo = MaxPrgNo
+    frmMain.txtPrgNo.Value = prgNo
     frmMain.txtKumi.Value = 1
     kumi = 1
   End If
-  uid = UIDFromRaceNo(prgno)
+  uid = UIDFromRaceNo(prgNo)
 
   If Not RaceExist(uid, kumi) Then
     popup ("該当のレースはありません。")
   Else
-    lastPrgNo = prgno
-    firstPrgNo = prgno
+    lastPrgNo = prgNo
+    firstPrgNo = prgNo
     Call show(uid, kumi)
   End If
 
 End Sub
 
+'-----------------------
+Function GetGodoNo(myCon As ADODB.Connection, prgNo As Integer, kumiNo As Integer)
+    Dim myQuery As String
+    Dim myRecordSet As New ADODB.Recordset
+    myQuery = "select 合同レース番号 from 合同レースプログラム where 大会番号= " & EventNo & _
+        " and (競技番号１=" & prgNo & " or 競技番号2=" & prgNo & " or 競技番号3=" & prgNo & _
+        " or   競技番号4 =" & prgNo & " or 競技番号5=" & prgNo & " or 競技番号6=" & prgNo & _
+        " or   競技番号7 =" & prgNo & " or 競技番号8=" & prgNo & " or 競技番号9=" & prgNo & _
+        " or   競技番号10 =" & prgNo & ") " & _
+        " and ( 組1=" & kumiNo & " or 組2=" & kumiNo & " or 組3 =" & kumiNo & " or 組4 =" & kumiNo & _
+        " or 組5 = " & kumiNo & " or 組6=" & kumiNo & " or 組7=" & kumiNo & " or 組8=" & kumiNo & _
+        " or 組9 = " & kumiNo & " or 組10=" & kumiNo & " )"
+        
+     myRecordSet.Open myQuery, myCon, adOpenStatic, adLockOptimistic, adLockReadOnly
+     If myRecordSet.recordCount > 0 Then
+        GetGodoNo = CInt(myRecordSet!合同レース番号)
+     Else
+        GetGodoNo = 0
+     End If
+     myRecordSet.Close
+     Set myRecordSet = Nothing
+End Function
+    
+    
+    
+    
+Sub CreateRaceArray()
+
+    
+    Dim myRecordSet As New ADODB.Recordset
+    Dim myQuery As String
+    Dim myCon As ADODB.Connection
 
 
+    Dim recordCount As Integer
+    Dim prgNo As Integer
+    Dim kumiNo As Integer
+    Set myCon = New ADODB.Connection
+    myCon.ConnectionString = "Provider=SQLOLEDB;Data Source=" & ServerName & "\SQLEXPRESS;Initial Catalog=Sw;User ID=Sw;Password=;"
+    myCon.Open
+
+
+    
+    myQuery = "SELECT distinct 競技番号, 組 FROM 記録 where 大会番号= " & EventNo
+    
+
+    myRecordSet.Open myQuery, myCon, adOpenStatic, adLockOptimistic, adLockReadOnly
+    Do Until myRecordSet.EOF
+        recordCount = recordCount + 1
+        myRecordSet.MoveNext
+    Loop
+
+    myRecordSet.MoveFirst
+
+    ReDim RealRace(3, recordCount)
+    recordCount = 0
+    Do Until myRecordSet.EOF
+        prgNo = CInt(myRecordSet!競技番号)
+        kumiNo = CInt(myRecordSet!組)
+        RealRace(0, recordCount) = prgNo
+        RealRace(1, recordCount) = kumiNo
+        RealRace(2, recordCount) = GetGodoNo(myCon, prgNo, kumiNo)
+        recordCount = recordCount + 1
+        myRecordSet.MoveNext
+    Loop
+    myRecordSet.Close
+    Set myRecordSet = Nothing
+    myCon.Close
+
+End Sub
+'---- for debugging use only
+Sub DebugShow(recordCount As Integer)
+    Dim i As Integer
+    For i = 0 To recordCount
+        Debug.Print "" & RealRace(0, i) & ", " & RealRace(1, i) & " , " & RealRace(2, i)
+    Next i
+End Sub
